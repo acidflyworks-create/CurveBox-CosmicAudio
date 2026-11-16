@@ -415,7 +415,8 @@ private:
     {
         const float phase = processor.getModulePhase (module);
         const auto& shape = processor.getCurve (module);
-        const float value = CurveShape::evaluate (phase, shape.getPoints());
+        const auto points = shape.getPoints();
+        const float value = CurveShape::evaluate (phase, points);
 
         const juce::Point<float> head (plot.getX() + phase * plot.getWidth(),
                                        plot.getBottom() - value * plot.getHeight());
@@ -431,7 +432,7 @@ private:
         {
             const float t = phase - 0.035f * (float) i / 24.0f;
             const float wrapped = t - std::floor (t);
-            const float v = CurveShape::evaluate (wrapped, shape.getPoints());
+            const float v = CurveShape::evaluate (wrapped, points);
             const juce::Point<float> p (plot.getX() + wrapped * plot.getWidth(),
                                         plot.getBottom() - v * plot.getHeight());
 

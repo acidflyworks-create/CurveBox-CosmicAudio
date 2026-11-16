@@ -160,7 +160,8 @@ private:
         std::atomic<float>* reverbPreDelay = nullptr;
     } raw;
 
-    int pendingPresetIndex = -1;
+    std::atomic<int> pendingPresetIndex { -1 };
+    std::atomic<bool> pendingBufferReset { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CurveBoxAudioProcessor)
 };

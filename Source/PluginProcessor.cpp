@@ -383,6 +383,10 @@ void CurveBoxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     if (numSamples <= 0 || numChannels <= 0)
         return;
 
+    if (pendingBufferReset.exchange (false, std::memory_order_acq_rel))
+        for (int m = 0; m < cb::kNumModules; ++m)
+            resetModuleBuffers (m);
+
     //--------------------------------------------------------------------------
     // Optional: restart all curves on a MIDI note-on
     //--------------------------------------------------------------------------
@@ -748,8 +752,8 @@ void CurveBoxAudioProcessor::applyPreset (int index)
 
     currentPreset.store (index);
 
-    for (int m = 0; m < cb::kNumModules; ++m)
-        resetModuleBuffers (m);
+    // DSP state belongs to the audio thread, never reset its buffers from UI.
+    pendingBufferReset.store (true, std::memory_order_release);
 
     if (onPresetChanged != nullptr)
         onPresetChanged();
@@ -763,12 +767,9 @@ void CurveBoxAudioProcessor::notifyCurveEdited (int module)
 
 void CurveBoxAudioProcessor::handleAsyncUpdate()
 {
-    if (pendingPresetIndex >= 0)
-    {
-        const int index = pendingPresetIndex;
-        pendingPresetIndex = -1;
+    const int index = pendingPresetIndex.exchange (-1, std::memory_order_acq_rel);
+    if (index >= 0)
         applyPreset (index);
-    }
 }
 
 //==============================================================================

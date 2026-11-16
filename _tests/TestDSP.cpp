@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
+#include <atomic>
+#include <thread>
 
 namespace
 {
@@ -82,6 +84,46 @@ int main()
 
         curve.setTension (0, 0.0f); // exponent 4 -> stays low
         check (curve.sample (0.25f) < 0.02f, "tension bends the segment");
+    }
+
+    //--------------------------------------------------------------------------
+    // Host state, editor edits and audio reads may overlap.
+    //--------------------------------------------------------------------------
+    {
+        cb::CurveShape curve;
+        std::atomic<bool> started { false };
+        std::atomic<bool> done { false };
+        std::atomic<bool> valid { true };
+        std::thread audio ([&]
+        {
+            started.store (true, std::memory_order_release);
+            while (! done.load (std::memory_order_acquire))
+            {
+                const float v = curve.sample (0.37f);
+                if (! std::isfinite (v) || v < 0.0f || v > 1.0f)
+                    valid.store (false, std::memory_order_relaxed);
+            }
+        });
+        while (! started.load (std::memory_order_acquire)) std::this_thread::yield();
+        std::thread state ([&]
+        {
+            for (int i = 0; i < 2000; ++i)
+            {
+                juce::XmlElement xml ("STATE");
+                curve.writeToXml (xml, "curve");
+                curve.readFromXml (xml.getChildByName ("curve"));
+            }
+        });
+        for (int i = 0; i < 2000; ++i)
+        {
+            curve.setFlat ((i & 1) ? 1.0f : 0.0f);
+            auto points = curve.getPoints();
+            if (points.size() < 2) valid.store (false, std::memory_order_relaxed);
+        }
+        state.join();
+        done.store (true, std::memory_order_release);
+        audio.join();
+        check (valid.load(), "concurrent curve edits, state and audio reads");
     }
 
     //--------------------------------------------------------------------------

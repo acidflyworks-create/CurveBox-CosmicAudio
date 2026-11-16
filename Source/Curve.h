@@ -3,11 +3,9 @@
     A drawable, tempo-locked curve with a lock-free LUT for the audio thread.
 
     Design:
-      * The message thread owns the point list and rebuilds a 1024-entry LUT
-        whenever it changes.
-      * Two LUT slots are used; the audio thread reads the slot indicated by an
-        atomic index, the writer always fills the *other* slot and then flips the
-        index with release semantics. No locks, no allocations on the audio side.
+      * Non-audio point access is protected against concurrent host state calls.
+      * LUT entries are atomic: two slots alone do not protect a reader when the
+        writer publishes twice in quick succession. Audio reads never take a lock.
 */
 
 #pragma once
@@ -16,6 +14,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <mutex>
 #include <vector>
 
 namespace cb
@@ -60,19 +59,21 @@ public:
     //==========================================================================
     // Point access (message thread)
     //==========================================================================
-    int getNumPoints() const noexcept { return (int) points.size(); }
+    int getNumPoints() const { const std::lock_guard<std::recursive_mutex> lock (pointsMutex); return (int) points.size(); }
 
     Point getPoint (int index) const
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         if (index < 0 || index >= (int) points.size())
             return {};
         return points[(size_t) index];
     }
 
-    const std::vector<Point>& getPoints() const noexcept { return points; }
+    std::vector<Point> getPoints() const { const std::lock_guard<std::recursive_mutex> lock (pointsMutex); return points; }
 
     void setPoints (std::vector<Point> newPoints)
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         if (newPoints.empty())
             newPoints = makeDefaultPoints();
 
@@ -100,6 +101,7 @@ public:
     /** Adds a point, keeping the list sorted. Returns the index of the new point. */
     int addPoint (float x, float y)
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         if ((int) points.size() >= kMaxPoints)
             return -1;
 
@@ -117,6 +119,7 @@ public:
     /** Removes an inner point. Returns true on success (the two edge points stay). */
     bool removePoint (int index)
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         if (index <= 0 || index >= getNumPoints() - 1)
             return false;
 
@@ -128,6 +131,7 @@ public:
 
     void movePoint (int index, float x, float y)
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         if (index < 0 || index >= getNumPoints())
             return;
 
@@ -148,6 +152,7 @@ public:
 
     void setTension (int segmentIndex, float tension)
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         if (segmentIndex < 0 || segmentIndex >= getNumPoints() - 1)
             return;
 
@@ -158,6 +163,7 @@ public:
 
     float getTension (int segmentIndex) const
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         if (segmentIndex < 0 || segmentIndex >= getNumPoints() - 1)
             return 0.5f;
         return points[(size_t) segmentIndex].tension;
@@ -302,29 +308,33 @@ public:
         const int   i1 = juce::jmin (kLutSize - 1, i0 + 1);
         const float frac = x - (float) i0;
 
-        return table[(size_t) i0] + frac * (table[(size_t) i1] - table[(size_t) i0]);
+        const float a = table[(size_t) i0].load (std::memory_order_relaxed);
+        const float b = table[(size_t) i1].load (std::memory_order_relaxed);
+        return a + frac * (b - a);
     }
 
     /** Message thread: rebuild the LUT from the current point list. */
     void rebuild()
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         const int writeSlot = 1 - activeSlot.load (std::memory_order_relaxed);
         auto& table = lut[(size_t) writeSlot];
 
         for (int i = 0; i < kLutSize; ++i)
-            table[(size_t) i] = evaluate ((float) i / (float) (kLutSize - 1), points);
+            table[(size_t) i].store (evaluate ((float) i / (float) (kLutSize - 1), points), std::memory_order_relaxed);
 
         activeSlot.store (writeSlot, std::memory_order_release);
         ++editCounter;
     }
 
-    int getEditCounter() const noexcept { return editCounter; }
+    int getEditCounter() const noexcept { return editCounter.load (std::memory_order_relaxed); }
 
     //==========================================================================
     // State
     //==========================================================================
     void writeToXml (juce::XmlElement& parent, const juce::String& tag) const
     {
+        const std::lock_guard<std::recursive_mutex> lock (pointsMutex);
         auto* curve = parent.createNewChildElement (tag);
 
         for (const auto& p : points)
@@ -358,10 +368,11 @@ public:
     }
 
 private:
+    mutable std::recursive_mutex pointsMutex;
     std::vector<Point> points;
-    std::array<std::array<float, (size_t) kLutSize>, 2> lut { };
+    std::array<std::array<std::atomic<float>, (size_t) kLutSize>, 2> lut { };
     std::atomic<int> activeSlot { 0 };
-    int editCounter = 0;
+    std::atomic<int> editCounter { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CurveShape)
 };
