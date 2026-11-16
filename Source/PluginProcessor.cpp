@@ -797,7 +797,9 @@ void CurveBoxAudioProcessor::setStateInformation (const void* data, int sizeInBy
     if (xml == nullptr)
         return;
 
-    auto curvesXml = std::unique_ptr<juce::XmlElement> (xml->getChildByName ("CURVES"));
+    // The parent XML element owns its children. This pointer is non-owning;
+    // removeChildElement below deletes the child exactly once.
+    auto* curvesXml = xml->getChildByName ("CURVES");
 
     if (curvesXml != nullptr)
     {
