@@ -1,0 +1,43 @@
+name: Windows x64 build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure VST3 and tests
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCURVEBOX_BUILD_FORMATS=VST3 -DCURVEBOX_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build --config Release --target CurveBox_VST3 CurveBoxDSPTests --parallel 2
+      - name: Run DSP tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Check preset parameter IDs
+        run: python _tests/check_param_ids.py
+      - name: Verify Windows x64 plugin
+        shell: pwsh
+        run: |
+          $dll = 'build/CurveBox_artefacts/Release/VST3/CurveBox.vst3/Contents/x86_64-win/CurveBox.vst3'
+          python _tests/check_windows_binary.py $dll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Create installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" '/DPluginFormat=VST3' "/DPayloadDir=$((Resolve-Path 'build/CurveBox_artefacts/Release/VST3').Path)" installer/CurveBox.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path 'packages/CurveBox-VST3-Windows-x64-Setup.exe')) { throw 'Installer not found' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CurveBox-VST3-Windows-x64
+          path: |
+            build/CurveBox_artefacts/Release/VST3/CurveBox.vst3/**
+            packages/CurveBox-VST3-Windows-x64-Setup.exe
+          if-no-files-found: error
+          retention-days: 30

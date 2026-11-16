@@ -1,0 +1,45 @@
+# --- build artefacts ---------------------------------------------------------
+build/
+build-*/
+dist/
+*.zip
+CMakeUserPresets.json
+
+# --- Visual Studio -----------------------------------------------------------
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.user
+
+# --- Xcode / macOS -----------------------------------------------------------
+*.xcodeproj/
+xcuserdata/
+.DS_Store
+DerivedData/
+
+# --- compiled objects / plugin outputs ---------------------------------------
+*.o
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.dylib
+*.so
+*.vst3
+*.app
+*.exe
+CurveBox_artefacts/
+
+# --- local test binaries ------------------------------------------------------
+_tests/test_dsp
+_tests/*.o
+
+# --- editors ------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+packages/
