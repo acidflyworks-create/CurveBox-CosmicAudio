@@ -37,8 +37,10 @@ jobs:
           & $validator.FullName --strictness-level 5 --validate (Resolve-Path 'build/CurveBox_artefacts/Release/VST3/CurveBox.vst3').Path 2>&1 | Tee-Object -FilePath pluginval.log
           $result = $LASTEXITCODE
           if ($result -ne 0) {
-            Get-Content pluginval.log | Select-Object -Last 50 | ForEach-Object { Write-Output "::error::$_" }
-            throw "pluginval failed: $result"
+            $tail = (Get-Content pluginval.log | Select-Object -Last 70) -join "`n"
+            $tail = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::pluginval failed ($result):%0A$tail"
+            exit 1
           }
       - name: Create installer
         shell: pwsh
