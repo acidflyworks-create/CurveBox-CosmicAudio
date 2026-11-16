@@ -27,12 +27,34 @@ jobs:
           $dll = 'build/CurveBox_artefacts/Release/VST3/CurveBox.vst3/Contents/x86_64-win/CurveBox.vst3'
           python _tests/check_windows_binary.py $dll
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate VST3 with pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip' -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval
+          $validator = Get-ChildItem pluginval -Filter pluginval.exe -Recurse | Select-Object -First 1
+          if (!$validator) { throw 'pluginval.exe not found' }
+          & $validator.FullName --strictness-level 5 --validate (Resolve-Path 'build/CurveBox_artefacts/Release/VST3/CurveBox.vst3').Path
+          if ($LASTEXITCODE -ne 0) { throw "pluginval failed: $LASTEXITCODE" }
       - name: Create installer
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" '/DPluginFormat=VST3' "/DPayloadDir=$((Resolve-Path 'build/CurveBox_artefacts/Release/VST3').Path)" installer/CurveBox.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path 'packages/CurveBox-VST3-Windows-x64-Setup.exe')) { throw 'Installer not found' }
+      - name: Test installer and uninstaller
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'CurveBox-install-test'
+          $installer = Resolve-Path 'packages/CurveBox-VST3-Windows-x64-Setup.exe'
+          $process = Start-Process $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$target`"") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $installed = Join-Path $target 'CurveBox.vst3/Contents/x86_64-win/CurveBox.vst3'
+          python _tests/check_windows_binary.py $installed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uninstaller = Join-Path $env:ProgramData 'CurveBox/Uninstall/VST3/unins000.exe'
+          $process = Start-Process $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($process.ExitCode -ne 0 -or (Test-Path $installed)) { throw 'Uninstaller failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: CurveBox-VST3-Windows-x64
