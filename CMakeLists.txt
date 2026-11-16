@@ -7,6 +7,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# A plugin is loaded into the host's process, where an older MSVCP140.dll may
+# already be present. Link the MSVC runtime into all plugin/JUCE targets so
+# MSVC's newer std::mutex implementation cannot bind to an older host runtime.
+# Keep this before FetchContent_MakeAvailable and juce_add_plugin.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
