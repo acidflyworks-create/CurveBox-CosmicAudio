@@ -44,7 +44,13 @@ jobs:
           }
       - name: REAPER x64 plugin insertion smoke test
         shell: pwsh
-        run: ./_tests/reaper/smoke.ps1
+        run: |
+          try { ./_tests/reaper/smoke.ps1 }
+          catch {
+            $message = ($_ | Out-String).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$message"
+            exit 1
+          }
       - name: Create installer
         shell: pwsh
         run: |
